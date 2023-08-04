@@ -54,7 +54,7 @@ public class LittlePayTripProcessor {
         return maxCharge;
     }
 
-    private Tap[] readTapsFromFile(String inputFile) throws IOException, ParseException {
+    protected Tap[] readTapsFromFile(String inputFile) throws IOException, ParseException {
         SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
         BufferedReader reader = new BufferedReader(new FileReader(inputFile));
 
@@ -95,7 +95,7 @@ public class LittlePayTripProcessor {
         return taps;
     }
 
-    private Trip[] processTaps(Tap[] taps) {
+    protected Trip[] processTaps(Tap[] taps) {
         List<Trip> trips = new ArrayList<>();
         int i = 0;
 
@@ -111,7 +111,7 @@ public class LittlePayTripProcessor {
             }
 
             Tap tapOn;
-            //Manage taps that are no ptocessed and tap type equals ON
+            //Manage taps that are not processed and tap type equals ON
             if (!taps[i].processed && taps[i].tapType.equals("ON")) {
                 tapOn = taps[i];
                 int j = i + 1;
@@ -182,6 +182,7 @@ public class LittlePayTripProcessor {
                 trips.add(trip);
 
             } else {
+
                 i++;
             }
 
@@ -227,7 +228,7 @@ public class LittlePayTripProcessor {
     }
 
 
-    private void writeTripsToFile(String outputFile, Trip[] trips) throws IOException {
+    protected void writeTripsToFile(String outputFile, Trip[] trips) throws IOException {
         BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile));
 
         writer.write("Started, Finished, DurationSecs, FromStopId, ToStopId, ChargeAmount, CompanyId, BusID, PAN, Status");
