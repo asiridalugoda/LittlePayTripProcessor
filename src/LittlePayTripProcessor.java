@@ -1,34 +1,8 @@
 import java.io.*;
-import java.text.*;
-import java.util.*;
-
-/**
- * Object class to hold the Taps
- */
-class Tap {
-    int id;
-    Date dateTime;
-    String tapType;
-    String stopId;
-    String companyId;
-    String busId;
-    String pan;
-}
-
-/**
- * Object Class to hold Trips
- */
-class Trip {
-    Date startTime;
-    Date endTime;
-    String fromStop;
-    String toStop;
-    double chargeAmount;
-    String companyId;
-    String busId;
-    String pan;
-    String status;
-}
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
 
 public class LittlePayTripProcessor {
 
@@ -42,14 +16,15 @@ public class LittlePayTripProcessor {
         String outputFile = "LittlePayTrips.csv";
 
         try {
+            LittlePayTripProcessor littlePayTripProcessor = new LittlePayTripProcessor();
             // Read the input taps from the CSV file
-            Tap[] taps = readTapsFromFile(inputFile);
+            Tap[] taps = littlePayTripProcessor.readTapsFromFile(inputFile);
 
             // Process the taps to create trips
-            Trip[] trips = processTaps(taps);
+            Trip[] trips = littlePayTripProcessor.processTaps(taps);
 
             // Write the trips to the output CSV file
-            writeTripsToFile(outputFile, trips);
+            littlePayTripProcessor.writeTripsToFile(outputFile, trips);
 
             System.out.println("Trips have been processed and written to " + outputFile);
         } catch (IOException | ParseException e) {
@@ -57,7 +32,23 @@ public class LittlePayTripProcessor {
         }
     }
 
-    private static Tap[] readTapsFromFile(String inputFile) throws IOException, ParseException {
+    private static double getMaxCharge(Tap tapOn, Tap tapOff) {
+        double maxCharge = 0.0;
+
+        if ((tapOn.stopId.equals("Stop1") && tapOff.stopId.equals("Stop2")) ||
+                (tapOn.stopId.equals("Stop2") && tapOff.stopId.equals("Stop1"))) {
+            maxCharge = 3.25;
+        } else if ((tapOn.stopId.equals("Stop2") && tapOff.stopId.equals("Stop3")) ||
+                (tapOn.stopId.equals("Stop3") && tapOff.stopId.equals("Stop2"))) {
+            maxCharge = 5.50;
+        } else if ((tapOn.stopId.equals("Stop1") && tapOff.stopId.equals("Stop3")) ||
+                (tapOn.stopId.equals("Stop3") && tapOff.stopId.equals("Stop1"))) {
+            maxCharge = 7.30;
+        }
+        return maxCharge;
+    }
+
+    private Tap[] readTapsFromFile(String inputFile) throws IOException, ParseException {
         SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
         BufferedReader reader = new BufferedReader(new FileReader(inputFile));
 
@@ -98,95 +89,134 @@ public class LittlePayTripProcessor {
         return taps;
     }
 
-    private static Trip[] processTaps(Tap[] taps) {
+    private Trip[] processTaps(Tap[] taps) {
         List<Trip> trips = new ArrayList<>();
         int i = 0;
 
         while (i < taps.length) {
 
-            Tap tapOn = taps[i];
-            int j = i + 1;
-            boolean tapOffFound = false;
-
-            // Find the corresponding tap off for the tap on
-            while (j < taps.length) {
-                if (taps[j].tapType.equals("OFF") && taps[j].pan.equals(tapOn.pan)) {
-                    tapOffFound = true;
-                    break;
-                }
-                j++;
+            if (!taps[i].processed && taps[i].tapType.equals("OFF")) {
+                // Skip the current tap as it is an OFF tap and should be matched with a previous ON tap
+                trips.add(processIncompleteTrips(taps[i]));
+                taps[i].processed = true;
+                i++;
+                continue;
             }
 
-            Trip trip = new Trip();
-            trip.startTime = tapOn.dateTime;
-            trip.fromStop = tapOn.stopId;
-            trip.companyId = tapOn.companyId;
-            trip.busId = tapOn.busId;
-            trip.pan = tapOn.pan;
+            Tap tapOn;
+            if (!taps[i].processed && taps[i].tapType.equals("ON")) {
+                tapOn = taps[i];
+                int j = i + 1;
+                boolean tapOffFound = false;
 
-            if (tapOffFound) {
-                // Check for cancelled trip (tap on and tap off at the same stop)
-                if (tapOn.stopId.equals(taps[j].stopId)) {
-                    trip.endTime = null;
-                    trip.toStop = null;
-                    trip.chargeAmount = 0.0;
-                    trip.status = "CANCELLED";
+                // Find the corresponding tap off for the tap on
+                while (j < taps.length) {
+                    if (!taps[j].processed && taps[j].tapType.equals("OFF") && taps[j].pan.equals(tapOn.pan) && taps[j].busId.equals(tapOn.busId)) {
+                        tapOffFound = true;
+                        break;
+                    }
+                    j++;
+                }
+
+                Trip trip = new Trip();
+                trip.startTime = tapOn.dateTime;
+                trip.fromStop = tapOn.stopId;
+                trip.companyId = tapOn.companyId;
+                trip.busId = tapOn.busId;
+                trip.pan = tapOn.pan;
+
+                if (tapOffFound) {
+                    // Check for cancelled trip (tap on and tap off at the same stop)
+                    if (tapOn.stopId.equals(taps[j].stopId)) {
+                        trip.endTime = null;
+                        trip.toStop = null;
+                        trip.chargeAmount = 0.0;
+                        trip.status = "CANCELLED";
+
+                    } else {
+                        // Completed trip, set tap off details
+                        Tap tapOff = taps[j];
+                        trip.endTime = tapOff.dateTime;
+                        trip.toStop = tapOff.stopId;
+
+                        // Calculate charge based on stops
+                        trip.chargeAmount = getMaxCharge(tapOn, tapOff);
+                        trip.status = "COMPLETED";
+
+                    }
+                    taps[i].processed = true;
+                    taps[j].processed = true;
+
+                    // Move to the next pair of taps
                 } else {
-                    // Completed trip, set tap off details
-                    Tap tapOff = taps[j];
-                    trip.endTime = tapOff.dateTime;
-                    trip.toStop = tapOff.stopId;
-
-                    // Calculate charge based on stops
+                    // Incomplete trip, set the charge to the maximum possible charge for the stop
                     double maxCharge = 0.0;
 
-                    if ((tapOn.stopId.equals("Stop1") && tapOff.stopId.equals("Stop2")) ||
-                            (tapOn.stopId.equals("Stop2") && tapOff.stopId.equals("Stop1"))) {
-                        maxCharge = 3.25;
-                    } else if ((tapOn.stopId.equals("Stop2") && tapOff.stopId.equals("Stop3")) ||
-                            (tapOn.stopId.equals("Stop3") && tapOff.stopId.equals("Stop2"))) {
-                        maxCharge = 5.50;
-                    } else if ((tapOn.stopId.equals("Stop1") && tapOff.stopId.equals("Stop3")) ||
-                            (tapOn.stopId.equals("Stop3") && tapOff.stopId.equals("Stop1"))) {
-                        maxCharge = 7.30;
+                    switch (tapOn.stopId) {
+                        case "Stop1":
+                        case "Stop3":
+                            maxCharge = 7.30;
+                            break;
+                        case "Stop2":
+                            maxCharge = 5.50;
+                            break;
+
                     }
 
+                    trip.endTime = null;
+                    trip.toStop = null;
                     trip.chargeAmount = maxCharge;
-                    trip.status = "COMPLETED";
-                }
+                    trip.status = "INCOMPLETE";
+                    taps[i].processed = true;
 
-                // Move to the next pair of taps
-                i = j + 1;
+
+                    // Move to the next tap
+                }
+                i++;
+                trips.add(trip);
+
             } else {
-                // Incomplete trip, set the charge to the maximum possible charge for the stop
-                double maxCharge = 0.0;
-
-                switch (tapOn.stopId) {
-                    case "Stop1":
-                    case "Stop3":
-                        maxCharge = 7.30;
-                        break;
-                    case "Stop2":
-                        maxCharge = 5.50;
-                        break;
-                }
-
-                trip.endTime = null;
-                trip.toStop = null;
-                trip.chargeAmount = maxCharge;
-                trip.status = "INCOMPLETE";
-
-                // Move to the next tap
                 i++;
             }
 
-            trips.add(trip);
+
         }
 
         return trips.toArray(new Trip[0]);
     }
 
-    private static void writeTripsToFile(String outputFile, Trip[] trips) throws IOException {
+    private Trip processIncompleteTrips(Tap tap) {
+        Trip trip = new Trip();
+        trip.startTime = tap.dateTime;
+        trip.fromStop = tap.stopId;
+        trip.companyId = tap.companyId;
+        trip.busId = tap.busId;
+        trip.pan = tap.pan;
+        // Incomplete trip, set the charge to the maximum possible charge for the stop
+
+        double maxCharge = 0.0;
+
+        switch (tap.stopId) {
+            case "Stop1":
+            case "Stop3":
+                maxCharge = 7.30;
+                break;
+            case "Stop2":
+                maxCharge = 5.50;
+                break;
+
+        }
+
+        trip.endTime = null;
+        trip.toStop = null;
+        trip.chargeAmount = maxCharge;
+        trip.status = "INCOMPLETE";
+
+        return trip;
+    }
+
+
+    private void writeTripsToFile(String outputFile, Trip[] trips) throws IOException {
         BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile));
 
         writer.write("Started, Finished, DurationSecs, FromStopId, ToStopId, ChargeAmount, CompanyId, BusID, PAN, Status");
