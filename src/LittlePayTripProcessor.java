@@ -32,6 +32,12 @@ public class LittlePayTripProcessor {
         }
     }
 
+    /**
+     * Calculates the Max charge based on the Tap on and off Stop IDs
+     * @param tapOn Tap On record
+     * @param tapOff Tap Off Record
+     * @return double MaxCharge
+     */
     private static double getMaxCharge(Tap tapOn, Tap tapOff) {
         double maxCharge = 0.0;
 
@@ -95,8 +101,9 @@ public class LittlePayTripProcessor {
 
         while (i < taps.length) {
 
+            //Manage files where records are starting with Tap OFFs and records that are not marked as not processed
             if (!taps[i].processed && taps[i].tapType.equals("OFF")) {
-                // Skip the current tap as it is an OFF tap and should be matched with a previous ON tap
+                // Skip the current tap as it is an OFF tap and should be matched with a previous ON tap. This will be marked as an Incomplete trip
                 trips.add(processIncompleteTrips(taps[i]));
                 taps[i].processed = true;
                 i++;
@@ -104,12 +111,13 @@ public class LittlePayTripProcessor {
             }
 
             Tap tapOn;
+            //Manage taps that are no ptocessed and tap type equals ON
             if (!taps[i].processed && taps[i].tapType.equals("ON")) {
                 tapOn = taps[i];
                 int j = i + 1;
                 boolean tapOffFound = false;
 
-                // Find the corresponding tap off for the tap on
+                // Find the corresponding tap off for the tap on. Tap off should be not processed, equals to the PAN ID and the BUS ID of the Tap ON
                 while (j < taps.length) {
                     if (!taps[j].processed && taps[j].tapType.equals("OFF") && taps[j].pan.equals(tapOn.pan) && taps[j].busId.equals(tapOn.busId)) {
                         tapOffFound = true;
@@ -147,7 +155,6 @@ public class LittlePayTripProcessor {
                     taps[i].processed = true;
                     taps[j].processed = true;
 
-                    // Move to the next pair of taps
                 } else {
                     // Incomplete trip, set the charge to the maximum possible charge for the stop
                     double maxCharge = 0.0;
@@ -170,7 +177,6 @@ public class LittlePayTripProcessor {
                     taps[i].processed = true;
 
 
-                    // Move to the next tap
                 }
                 i++;
                 trips.add(trip);
@@ -185,6 +191,11 @@ public class LittlePayTripProcessor {
         return trips.toArray(new Trip[0]);
     }
 
+    /**
+     * Process incomplete trips and returns trip record with the status incomplete
+     * @param tap Incomplete Tap record
+     * @return Trip record
+     */
     private Trip processIncompleteTrips(Tap tap) {
         Trip trip = new Trip();
         trip.startTime = tap.dateTime;
